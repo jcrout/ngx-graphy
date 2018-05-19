@@ -1,0 +1,23 @@
+Graphing Calculator
+
+Equations
+-Standard y = f(x)
+-Polar
+
+Modules:
+-Equation box
+--Syntax highlighting?
+---Number literals
+---Constants
+---Variables
+---Functions
+--Realtime results shown without clicking "Graph"
+--Not standard textbox, can show special symbols with superscripts and subscript
+
+-Calculator Service
+--Takes each equation
+---Runs values such as -100 to 100 through each one
+---Emits event for calculating the output
+
+-Graph Box
+--Responsible for turning all outputs into points and lines on the graph
