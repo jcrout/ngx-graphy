@@ -21,3 +21,14 @@ Modules:
 
 -Graph Box
 --Responsible for turning all outputs into points and lines on the graph
+
+
+1/2calc
+1/23
+
+
+          if (matchingMember instanceof EquationOperator) {
+            // check for required arg count
+          } else if (matchingMember instanceof EquationFunction) {
+            // check for left paren
+          }

@@ -1,20 +1,18 @@
 import { NgModule, ModuleWithProviders } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { EquationBoxComponent } from './equation-box/equation-box.component';
-import { EquationParserService } from './equation-parser.service';
+import { EquationParserModule } from '../equation-parser/equation-parser.module';
 
 @NgModule({
   imports: [
-    CommonModule
+    CommonModule,
+    EquationParserModule.forRoot()
   ],
   declarations: [
     EquationBoxComponent
   ],
   exports: [
     EquationBoxComponent
-  ],
-  providers: [
-    EquationParserService
   ]
 })
 export class EquationBoxModule {
@@ -22,7 +20,6 @@ export class EquationBoxModule {
     return {
       ngModule: EquationBoxModule,
       providers: [
-        EquationParserService
       ]
     };
   }

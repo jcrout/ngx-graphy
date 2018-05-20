@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
-import { EquationParserService } from '../equation-parser.service';
+import { EquationParserService } from '../../equation-parser/equation-parser.service';
+import { ParserPart } from '../../equation-parser/equastion-parser-models';
 
 @Component({
   selector: 'app-equation-box',
@@ -16,8 +17,10 @@ export class EquationBoxComponent implements OnInit {
   ngOnInit() {
     //this.eq = 'x^2.2 + A -1.9(absabs(x) + 1)^1.1';
     //this.eq = 'absabs(x) + abs';
-    this.eq = '2.2x + 2absd + 1';
+    this.eq = '5min(x)(5) + min((5+2';
+    //this.eq = '1abcdg)f + )hg';
     this.testVal = this.equationParser.parse(this.eq);
+    this.tempClean(this.testVal.equationPart);
     this.testLine1 = '';
     this.testLine2 = '';
     for (let i = 0; i < this.eq.length; i++) { 
@@ -26,4 +29,8 @@ export class EquationBoxComponent implements OnInit {
     }
   }
 
+  tempClean(part: ParserPart) { 
+    delete part.member;
+    part.parts.forEach(p => this.tempClean(p));
+  }
 }
