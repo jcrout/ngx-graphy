@@ -73,6 +73,7 @@ export class EqFunction extends EqMember {
 
         a.position = a.position >= 0 ? a.position : i;
       });
+      args.sort((a1, a2) => a1.position > a2.position ? 1 : -1);
     }
   }
 }
@@ -111,6 +112,12 @@ export class EqContainer extends EqMember {
   }
 }
 
+export class EqArgSeparator extends EqMember {
+  constructor(literal: string) {
+    super(literal);
+  }
+}
+
 export interface EqMemberType {
   type: string;
   color?: string;
@@ -140,6 +147,12 @@ export class ParserError {
 
 export class ParserIdentifierError extends ParserError {
   constructor(message: string, startIndex: number, public identifier: string) {
+    super(message, startIndex);
+  }
+}
+
+export class ParserFunctionArgumentError extends ParserError {
+  constructor(message: string, startIndex: number, public fn: EqFunction, public arg: EqFunctionArgument) {
     super(message, startIndex);
   }
 }
