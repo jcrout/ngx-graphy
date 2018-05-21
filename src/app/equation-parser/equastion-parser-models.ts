@@ -118,6 +118,12 @@ export class EqArgSeparator extends EqMember {
   }
 }
 
+export class EqArg extends EqMember {  
+  constructor(literal: string) {
+    super(literal);
+  }
+}
+
 export interface EqMemberType {
   type: string;
   color?: string;
@@ -137,7 +143,7 @@ export interface ParserPart {
   literal: string;
   member: EqMember;
   type: string;
-  args?: string[];
+  argCount?: number;
   parts?: ParserPart[];
 }
 
@@ -151,8 +157,14 @@ export class ParserIdentifierError extends ParserError {
   }
 }
 
+export class ParserOperatorArgumentError extends ParserError {
+  constructor(message: string, startIndex: number, public fn: EqOperator) {
+    super(message, startIndex);
+  }
+}
+
 export class ParserFunctionArgumentError extends ParserError {
-  constructor(message: string, startIndex: number, public fn: EqFunction, public arg: EqFunctionArgument) {
+  constructor(message: string, startIndex: number, public fn: EqFunction, public arg?: EqFunctionArgument) {
     super(message, startIndex);
   }
 }
@@ -165,4 +177,10 @@ export class ParserPotentialFunctionWarning extends ParserWarning {
   constructor(message: string, startIndex: number, public identifier: string) {
     super(message, startIndex);
   }
+}
+
+export interface FunctionGenerationResults {
+  inputs: EqVariable[];
+  output: Function;
+  error: any;
 }

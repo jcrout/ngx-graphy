@@ -17,9 +17,10 @@ export class EquationBoxComponent implements OnInit {
   ngOnInit() {
     //this.eq = 'x^2.2 + A -1.9(absabs(x) + 1)^1.1';
     //this.eq = 'absabs(x) + abs';
-    this.eq = '5abs(x) + 10.2min(x,1/2x,x^2)';
+    //this.eq = '5abs(x) + 10.2min(x,1/2x,x^2)';
     //this.eq = '1abcdg)f + )hg';
-
+    this.eq = '.5xamin(x, 2) + absoo(x, x - 3)'
+    //this.eq = '-5abs(x) --3^2';
     const timestamp = Date.now();
 
     //for (let i = 0; i < 500; i++) {
@@ -28,6 +29,8 @@ export class EquationBoxComponent implements OnInit {
 
     const timestamp2 = Date.now();
     console.log('All: ' + (timestamp2 - timestamp) + 'ms');
+
+    const something = this.equationParser.generateFunction(this.testVal);
 
     this.tempClean(this.testVal.equationPart);
     this.testLine1 = '';
