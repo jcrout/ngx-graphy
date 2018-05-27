@@ -17,8 +17,15 @@ declare interface IUsedMember {
   member: EqMember;
 }
 
+declare interface IFunctionPiece {
+  text: string;
+  member: EqMember;
+  parts: IFunctionPiece[];
+}
+
 @Injectable()
 export class EquationParserService {
+  public static SubtractionOperator = new EqOperator('-', (n1, n2) => n1 - n2, 10, EqFunctionArgument.defaultRightOperator());
   public static MultiplicationOperator = new EqOperator('*', (n1, n2) => n1 * n2, 20, EqFunctionArgument.defaultOperator());
   private readonly IdentifierMessage = 'Identifier \'{0}\' not found';
   private readonly DigitRegex = /^\d$/;
@@ -57,7 +64,7 @@ export class EquationParserService {
   ];
   definedOperators: EqOperator[] = [
     new EqOperator('+', (n1, n2) => n1 + n2, 10, EqFunctionArgument.defaultRightOperator()),
-    new EqOperator('-', (n1, n2) => n1 - n2, 10, EqFunctionArgument.defaultRightOperator()),
+    EquationParserService.SubtractionOperator,
     EquationParserService.MultiplicationOperator,
     new EqOperator('/', (n1, n2) => n1 / n2, 20, EqFunctionArgument.defaultOperator()),
     new EqOperator('^', (n1, n2) => Math.pow(n1, n2), 30, EqFunctionArgument.defaultOperator()),
@@ -77,7 +84,7 @@ export class EquationParserService {
 
     // temp
     this.functions.push(new EqFunction('asbo', 'ASBO', x => x, [EqFunctionArgument.default(), EqFunctionArgument.default(), EqFunctionArgument.default()]));
-    this.functions.push(new EqFunction('absoo', 'ASBOO', (x: number, y: number) => x + y - 1, [EqFunctionArgument.default(), EqFunctionArgument.default()]));
+    this.functions.push(new EqFunction('asboo', 'ASBOO', (x: number, y: number) => x + y - 1, [EqFunctionArgument.default(), EqFunctionArgument.default()]));
     this.variables.push(new EqVariable('x'));
     this.constants.push(new EqConstant('a', '1'));
     this.constants.push(new EqConstant('b', '5'));
@@ -175,7 +182,7 @@ export class EquationParserService {
     if (!(part.member instanceof EqOperator)) {
       return;
     }
-    
+
     const leftPart = index > 0 ? parent.parts[index - 1] : null;
     const rightPart = index < parent.parts.length - 1 ? parent.parts[index + 1] : null;
     const args = part.member.args;
@@ -184,7 +191,7 @@ export class EquationParserService {
     const OperatorArgumentErrorMessage = args[0].defaultValue ? 'Operator \'{0}\' requires a value to the right' : 'Operator \'{0}\' requires a value to the left and right';
     const msg = OperatorArgumentErrorMessage.replace("{0}", part.member.literal);
 
-    if ((!args[1].defaultValue && !rightPart) || (!args[0].defaultValue && !leftPart)) { 
+    if ((!args[1].defaultValue && !rightPart) || (!args[0].defaultValue && !leftPart)) {
       results.errors.push(new ParserOperatorArgumentError(msg, part.startIndex, part.member));
     }
   }
@@ -228,6 +235,8 @@ export class EquationParserService {
           maxFirstLength = word.length - 1 - j;
         }
       }
+
+      clearWord();
     }
     function processWordAsIs(word: string, i: number) {
       if (word != '') {
@@ -246,15 +255,35 @@ export class EquationParserService {
     }
     function validateParen(exactMatch: IEqMemberListing, i: number) {
       if (!(exactMatch.member instanceof EqOperator) && exactMatch.member instanceof EqFunction && !that.ParenRegex.test(equationText.substr(i + 1))) {
-        results.warnings.push(new ParserPotentialFunctionWarning('Did you mean to call function \'' + exactMatch.literal + '\'?', startIndex + i - exactMatch.literal.length, exactMatch.literal));
-        checkSubparts(exactMatch.literal, i - 1);
+        results.warnings.push(new ParserPotentialFunctionWarning('Did you mean to call function \'' + exactMatch.literal + '\'?', startIndex + i - exactMatch.literal.length + 1, exactMatch.literal));
+        checkSubparts(exactMatch.literal, i);
       } else {
         addPart(i - exactMatch.literal.length + 1, exactMatch.literal, exactMatch.member);
       }
 
       clearWord();
     }
-    function addPart(index: number, literal: string, member: EqMember) {     
+    function validateFnArgs(fnPart: ParserPart, idx: number) {
+      let fnMember = fnPart.member as EqFunction;
+      let reqCount = fnMember.args.filter(a => !a.defaultValue && !a.infiniteArgs).length;
+      let maxCount = fnMember.args.filter(a => a.infiniteArgs).length > 0 ? 100000 : fnMember.args.length;
+      let suppliedArgs = fnPart.parts.filter(p => !(p.member instanceof EqArgSeparator));
+      let suppliedArgCount = suppliedArgs.length;
+      if (suppliedArgCount < reqCount) {
+        let msg = 'Function \'{0}\' requires {1} argument(s)';
+        let msg2 = 'Function \'{0}\' requires at least {1} argument(s)';
+        let output = (maxCount > reqCount ? msg2 : msg).replace("{0}", fnMember.name).replace("{1}", reqCount.toString());
+        results.errors.push(new ParserFunctionArgumentError(output, startIndex + idx + 1, fnMember, null));
+      } else if (suppliedArgCount > maxCount) {
+        let msg = 'Function \'{0}\' only takes {1} argument(s)';
+        let output = msg.replace("{0}", fnMember.name).replace("{1}", maxCount.toString());
+        results.errors.push(new ParserFunctionArgumentError(output, startIndex + idx + 1, fnMember, null));
+      }
+    }
+    function validateOperators() {
+
+    }
+    function addPart(index: number, literal: string, member: EqMember) {
       let newPart = <ParserPart>{
         startIndex: startIndex + index,
         literal: literal,
@@ -262,84 +291,48 @@ export class EquationParserService {
         member: member,
         parts: [],
       };
-      part.parts.push(newPart);
+      let parentPart = part;
+      if (insideFunction && !(member instanceof EqArgSeparator)) {
+        if (!currentFnArg) {
+          currentFnArg = <ParserPart>{
+            startIndex: startIndex + index,
+            literal: '',
+            type: 'EqArg',
+            member: new EqArg(''),
+            parts: []
+          };
+          part.parts.push(currentFnArg);
+        }
+        parentPart = currentFnArg;
+      }
 
-      if (lastPart) { 
-        // check if multiplication should be added in
-        if (lastPart.member instanceof EqOperator) { 
-          
+      parentPart.parts.push(newPart);
+      if (lastPart) {
+        // check if a subtraction sign and a number should be combined into one part
+        if (lastPart.member === EquationParserService.SubtractionOperator && newPart.member instanceof EqNumber) {
+          // check to see if the minus symbol is right next to the new part
+          let subtractionEndIndex = lastPart.startIndex + lastPart.literal.length;
+          if (subtractionEndIndex === newPart.startIndex) {
+            let idx = parentPart.parts.indexOf(lastPart);
+            let leftPart = idx > 0 ? parentPart.parts[idx - 1] : null;
+            // if there is nothing to the left, then this is surely a negative number
+            if (idx === 0 || (leftPart && leftPart.member instanceof EqArgSeparator)) {
+              parentPart.parts.splice(idx, 1);
+              newPart.literal = lastPart.literal + newPart.literal;
+              newPart.startIndex = lastPart.startIndex;
+              lastPart = leftPart;
+            }
+          }
         }
       }
 
       lastPart = newPart;
       return newPart;
     }
-    function updateFunctionArguments(functionPart: ParserPart, idx: number) {
-      let fnMember = functionPart.member as EqFunction;
-      let partArgs = <ParserPart[]>[];
-      let currentArg = <ParserPart>{
-        startIndex: idx,
-        literal: 'adfasdfasdfasdf',
-        type: Object.getPrototypeOf(EqArg).constructor.name,
-        member: new EqArg('asdfasdf'),
-        parts: [],
-      };
-
-      for (let i = 0; i < functionPart.parts.length; i++) {
-        let part = functionPart.parts[i];
-
-        if (part.member instanceof EqArgSeparator) {
-          if (i === 0 || i === functionPart.parts.length - 1) {
-            let msg = 'Empty argument';
-            results.errors.push(new ParserFunctionArgumentError(msg, part.startIndex, fnMember, null));
-          } else if (i > 0 && functionPart.parts[i - 1].member instanceof EqArgSeparator) {
-            let msg = 'Empty argument';
-            results.errors.push(new ParserFunctionArgumentError(msg, functionPart.parts[i - 1].startIndex, fnMember, null));
-          }
-          currentArg = { parts: [] };
-        } else {
-          currentArg.parts.push(part);
-        }
-      }
-      if (!partArgs.includes(currentArg)) {
-        partArgs.push(currentArg);
-      }
-
-
-      let suppliedArgCount = partArgs.length;
-      let reqCount = fnMember.args.filter(a => !a.defaultValue && !a.infiniteArgs).length;
-      let maxCount = fnMember.args.filter(a => a.infiniteArgs).length > 0 ? 100000 : fnMember.args.length;
-      functionPart.argCount = suppliedArgCount;
-
-      if (suppliedArgCount < reqCount) {
-        let msg = 'Function \'{0}\' requires {1} argument(s)';
-        let msg2 = 'Function \'{0}\' requires at least {1} argument(s)';
-        let output = (maxCount > reqCount ? msg2 : msg).replace("{0}", fnMember.name).replace("{1}", reqCount.toString());
-        results.errors.push(new ParserFunctionArgumentError(output, idx + 1, fnMember, null));
-      } else if (suppliedArgCount > maxCount) {
-        let msg = 'Function \'{0}\' only takes {1} argument(s)';
-        let output = msg.replace("{0}", fnMember.name).replace("{1}", maxCount.toString());
-        results.errors.push(new ParserFunctionArgumentError(output, idx + 1, fnMember, null));
-      }
-      fnMember.args.forEach((arg, i) => {
-        let matchingArg = partArgs[i];
-        if (matchingArg) {
-          // validate type
-        } else {
-          if (arg.defaultValue) {
-            // optional param
-          } else if (arg.infiniteArgs) {
-            // optional infinite list
-          } else {
-            // error
-
-          }
-        }
-      });
-    }
 
     const that = this;
     let currentWord = '';
+    let currentFnArg: ParserPart = null;
     let lastPart: ParserPart = null;
     let isInNumber = false;
     let periodUsed = false;
@@ -368,18 +361,21 @@ export class EquationParserService {
         }
         processWordAsIs(currentWord, i);
         addPart(i, ',', new EqArgSeparator(','));
+        const endIndex = this._parse(results, equationText.substr(i + 1), part, true, startIndex + i + 1, depth);
+        i += endIndex;
+        clearWord();
       } else if (c === '(') {
         processWordAsIs(currentWord, i - 1);
 
-        const lastPartIsFunction =  lastPart &&!(lastPart.member instanceof EqOperator) && lastPart.member instanceof EqFunction
-        //const containerPart = addPart(i, '()', new EqContainer('()'));
-        const endIndex = this._parse(results, equationText.substr(i + 1), lastPart, lastPartIsFunction, startIndex + i + 1, depth + 1);
+        const lastPartIsFunction = lastPart && !(lastPart.member instanceof EqOperator) && lastPart.member instanceof EqFunction
+        const endIndex = this._parse(results, equationText.substr(i + 1), lastPartIsFunction ? lastPart : part, lastPartIsFunction, startIndex + i + 1, depth + 1);
+        if (lastPartIsFunction) {
+          validateFnArgs(lastPart, i);
+        }
+
         const newIndex = i + endIndex;
         i = newIndex;
         clearWord();
-        if (lastPartIsFunction) {
-          updateFunctionArguments(lastPart, i);
-        }
       } else if (isInNumber) {
         if (c === '.') {
           currentWord += c;
@@ -452,6 +448,7 @@ export class EquationParserService {
       processWordAsIs(currentWord, equationText.length);
     }
 
+    validateOperators();
     return equationText.length;
   }
 
@@ -480,40 +477,39 @@ export class EquationParserService {
           const isNative = functionBody.includes('[native code]');
           functionsObject[lookup] = p.member.expression;
 
-          usedFunctions.push({ lookup: tempFnBase + '[' +  lookup + ']', literal: p.literal, member: p.member });
+          usedFunctions.push({ lookup: tempFnBase + '[' + lookup + ']', literal: p.literal, member: p.member });
           tempFnNumber++;
         }
       }
     });
-    if (!usedFunctions.some(uv => uv.literal === EquationParserService.MultiplicationOperator.literal)) { 
-      usedFunctions.push({ 
-        lookup: tempFnBase + '[' +  tempFnNumber + ']', 
-        literal: EquationParserService.MultiplicationOperator.literal, 
-        member: EquationParserService.MultiplicationOperator 
+    if (!usedFunctions.some(uv => uv.literal === EquationParserService.MultiplicationOperator.literal)) {
+      usedFunctions.push({
+        lookup: tempFnBase + '[' + tempFnNumber + ']',
+        literal: EquationParserService.MultiplicationOperator.literal,
+        member: EquationParserService.MultiplicationOperator
       });
 
       functionsObject[tempFnNumber] = EquationParserService.MultiplicationOperator.expression;
       tempFnNumber++;
     }
 
-    textParts.push('var tempx = arguments[0];\nconsole.log(arguments)\n');
-    usedVariables.forEach((uv, i) => { 
+    textParts.push('var tempx = arguments[0];\n'); //console.log(arguments)\n');
+    usedVariables.forEach((uv, i) => {
       textParts.push(`var x = arguments[1][${i.toString()}];\n`);
     });
 
-    textParts.push('console.log(x); console.log(tempx[0](x, 1));');
+    const pieces = this.convertPartToFunctionPiece(results.equationPart);
+    const finalPiece = this._generateFunction(pieces, usedFunctions);
 
-    //this._generateFunction(results, results.equationPart, textParts, usedVariables, usedFunctions);
-
-
-    //const finalFunctionText = 'var tempx = arguments[0];\nvar x = arguments[console.log(arguments);\nconsole.log(tempx[0](9, 4));'; // textParts.map(t => t.join()).join() + '}';
+    textParts.push('return ');
+    textParts.push(finalPiece.text);
+    textParts.push(';');
     const finalFunctionText = textParts.join('');
-    console.log(finalFunctionText);
+
 
     try {
       functionResults.output = this._getFn(functionsObject, finalFunctionText);
       functionResults.error = null;
-      functionResults.output(7);
     } catch (ex) {
       functionResults.error = ex;
     }
@@ -521,46 +517,94 @@ export class EquationParserService {
     return functionResults;
   }
 
-  _getFn(functionsObject: any, functionBody: string) { 
-    var fn = Function(functionBody) as Function;
-    return function() { 
-      fn(functionsObject, arguments);
+  private convertPartToFunctionPiece(part: ParserPart): IFunctionPiece {
+    var parts = part.parts.map(p => this.convertPartToFunctionPiece(p));
+    // add the implicit multiplication parts
+    for (let i = 1; i < parts.length; i++) {
+      let leftPart = parts[i - 1].member;
+      let rightPart = parts[i].member;
+      if (!(leftPart instanceof EqOperator && !(leftPart instanceof EqArgSeparator) && !(leftPart instanceof EqArg)) &&
+        (!(rightPart instanceof EqOperator) && !(rightPart instanceof EqArgSeparator) && !(rightPart instanceof EqArg))) {
+        parts.splice(i, 0, <IFunctionPiece>{
+          text: EquationParserService.MultiplicationOperator.literal,
+          member: EquationParserService.MultiplicationOperator,
+          parts: []
+        });
+        i++;
+      }
+    }
+    return <IFunctionPiece>{
+      text: part.literal,
+      member: part.member,
+      parts: parts
     };
   }
 
-  _generateFunction(results: EqParseResults, part: ParserPart, bodyPart: string[], usedVariables: IUsedMember[], usedFunctions: IUsedMember[]) {
+  private _getFn(functionsObject: any, functionBody: string) {
+    var fn = Function(functionBody) as Function;
+    return function () {
+      return fn(functionsObject, arguments);
+    };
+  }
+
+  private _generateFunction(piece: IFunctionPiece, usedFunctions: IUsedMember[]): IFunctionPiece {
     const that = this;
-    const isContainer = part.member instanceof EqContainer;
+    if (piece.member instanceof EqFunction) {
+      let subPieces = [];
+      for (let i = 0; i < piece.parts.length; i += 2) {
+        let argPiece = piece.parts[i];
+        let updatedArgPiece = that._generateFunction(argPiece, usedFunctions);
+        subPieces.push(updatedArgPiece.text);
+      }
+      var fn = usedFunctions.find(uf => uf.literal === piece.member.literal);
+      var newPiece = <IFunctionPiece>{
+        text: fn.lookup + '(' + subPieces.join(',') + ')',
+        member: null,
+        parts: []
+      };
+      return newPiece;
+    } else if (piece.parts.length === 1) { 
+      return that._generateFunction(piece.parts[0], usedFunctions);
+    } else if (piece.parts.length === 0) { 
+      if (piece.member instanceof EqConstant) { 
+        piece.text = piece.member.expression;
+      }
 
-    if (isContainer) {
-      bodyPart.push('(');
-    }
-
-    part.parts.forEach(p => {
-      this._generateFunction(results, p, bodyPart, usedVariables, usedFunctions);
-    });
-
-    if (isContainer) {
-      bodyPart.push(')');
+      return piece;
     } else {
+      const operators = piece.parts.filter(p => p.member instanceof EqOperator);      
+      operators.sort((o1, o2) => (<EqOperator>o1.member).index > (<EqOperator>o2.member).index ? -1 : (<EqOperator>o1.member).index < (<EqOperator>o2.member).index ? 1 : 0);
+      operators.forEach(o => {
+        var idx = piece.parts.indexOf(o);
+        var leftPiece = piece.parts[idx - 1];
+        var rightPiece = piece.parts[idx + 1];
+        if (leftPiece.member instanceof EqConstant) { 
+          leftPiece.text = leftPiece.member.expression;
+        } else if (leftPiece.parts.length > 0) {
+          leftPiece = that._generateFunction(leftPiece, usedFunctions)
+        }
+        if (rightPiece.member instanceof EqConstant) { 
+          rightPiece.text = rightPiece.member.expression;
+        } else if (rightPiece.parts.length > 0) {
+          rightPiece = that._generateFunction(rightPiece, usedFunctions)
+        }
+        var fn = usedFunctions.find(uf => uf.literal === o.text);
+        var str = fn.lookup + '(' + leftPiece.text + ',' + rightPiece.text + ')';
+        var newPiece = <IFunctionPiece>{
+          text: str,
+          member: o.member,
+          parts: []
+        };
+        piece.parts.splice(idx - 1, 1);
+        piece.parts.splice(idx - 1, 1);
+        piece.parts.splice(idx - 1, 1, newPiece);
+      });
 
-      bodyPart.push(part.literal);
-      // if (part.member instanceof EqVariable) { 
-      //   if (!usedVariables.some(uv => uv.literal === part.literal)) { 
-      //     usedVariables.push({ literal: part.literal, member: part.member });
-      //   }
-      //   bodyPart.push(part.literal);
-      // } else if (part.member instanceof EqFunction) { 
-      //   if (!usedFunctions.some(uv => uv.literal === part.literal)) { 
-      //     usedVariables.push({ literal: part.literal, member: part.member });
-      //   }
-      // } else { 
-      //   bodyPart.push(part.literal);
-      // }     
+      return piece.parts[0];
     }
   }
 
-  getAllIdentifiers(part: ParserPart): ParserPart[] {
+  private getAllIdentifiers(part: ParserPart): ParserPart[] {
     function flatten(part: ParserPart) {
       parts.push(part);
       part.parts.forEach(p => flatten(p));
