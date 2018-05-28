@@ -1,6 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Output, EventEmitter } from '@angular/core';
 import { EqMemberType, EqFunction, EqConstant, EqVariable, EqOperator, EqMember, EqParseResults, ParserPart, ParserError, EqNumber, EqContainer, EqFunctionArgument, ParserIdentifierError, ParserPotentialFunctionWarning, ParserFunctionArgumentError, EqArgSeparator, FunctionGenerationResults, ParserOperatorArgumentError, EqArg } from './equastion-parser-models';
 import { Parser } from '@angular/compiler';
+import { parseWebDriverCommand } from 'blocking-proxy/built/lib/webdriver_commands';
 
 declare interface IEqMemberDictionary {
   [text: string]: EqMember;
@@ -25,6 +26,8 @@ declare interface IFunctionPiece {
 
 @Injectable()
 export class EquationParserService {
+  @Output() parsed = new EventEmitter<EqParseResults>();
+
   public static SubtractionOperator = new EqOperator('-', (n1, n2) => n1 - n2, 10, EqFunctionArgument.defaultRightOperator());
   public static MultiplicationOperator = new EqOperator('*', (n1, n2) => n1 * n2, 20, EqFunctionArgument.defaultOperator());
   private readonly IdentifierMessage = 'Identifier \'{0}\' not found';
@@ -137,8 +140,7 @@ export class EquationParserService {
     const timestamp2 = Date.now();
     results.elapsedTime = timestamp2 - timestamp;
 
-    //console.log(results.elapsedTime + 'ms');
-
+    this.parsed.emit(results);
     return results;
   }
 
@@ -368,7 +370,8 @@ export class EquationParserService {
         processWordAsIs(currentWord, i - 1);
 
         const lastPartIsFunction = lastPart && !(lastPart.member instanceof EqOperator) && lastPart.member instanceof EqFunction
-        const endIndex = this._parse(results, equationText.substr(i + 1), lastPartIsFunction ? lastPart : part, lastPartIsFunction, startIndex + i + 1, depth + 1);
+        const pPart = lastPartIsFunction ? lastPart : addPart(i, '(', new EqContainer('('));
+        const endIndex = this._parse(results, equationText.substr(i + 1), pPart, lastPartIsFunction, startIndex + i + 1, depth + 1);
         if (lastPartIsFunction) {
           validateFnArgs(lastPart, i);
         }
@@ -454,66 +457,70 @@ export class EquationParserService {
 
   generateFunction(results: EqParseResults): FunctionGenerationResults {
     const functionResults = <FunctionGenerationResults>{};
-    const allParts = this.getAllIdentifiers(results.equationPart);
-    const usedVariables = <EqVariable[]>[];
-    const usedFunctions = <IUsedMember[]>[];
-    const tempFnBase = 'tempx';
-    let tempFnNumber = 0;
-
-    const textParts = <string[]>[]; // main function body
-
-    var functionsObject = {};
-
-    allParts.forEach(p => {
-      if (p.member instanceof EqVariable) {
-        if (!usedVariables.some(uv => uv.literal === p.literal)) {
-          usedVariables.push(p.member);
+    try { 
+      const allParts = this.getAllIdentifiers(results.equationPart);
+      const usedVariables = <EqVariable[]>[];
+      const usedFunctions = <IUsedMember[]>[];
+      const tempFnBase = 'tempx';
+      let tempFnNumber = 0;
+  
+      const textParts = <string[]>[]; // main function body
+  
+      var functionsObject = {};
+  
+      allParts.forEach(p => {
+        if (p.member instanceof EqVariable) {
+          if (!usedVariables.some(uv => uv.literal === p.literal)) {
+            usedVariables.push(p.member);
+          }
+        } else if (p.member instanceof EqFunction) {
+          if (!usedFunctions.some(uv => uv.literal === p.literal)) {
+            const lookup = tempFnNumber;
+            const functionBody = p.member.expression.toString();
+            const maxArgCount = allParts.filter(ap => ap.member === p.member).map(ap => ap.argCount).reduce((n1, n2) => Math.max(n1, n2));
+            const isNative = functionBody.includes('[native code]');
+            functionsObject[lookup] = p.member.expression;
+  
+            usedFunctions.push({ lookup: tempFnBase + '[' + lookup + ']', literal: p.literal, member: p.member });
+            tempFnNumber++;
+          }
         }
-      } else if (p.member instanceof EqFunction) {
-        if (!usedFunctions.some(uv => uv.literal === p.literal)) {
-          const lookup = tempFnNumber;
-          const functionBody = p.member.expression.toString();
-          const maxArgCount = allParts.filter(ap => ap.member === p.member).map(ap => ap.argCount).reduce((n1, n2) => Math.max(n1, n2));
-          const isNative = functionBody.includes('[native code]');
-          functionsObject[lookup] = p.member.expression;
-
-          usedFunctions.push({ lookup: tempFnBase + '[' + lookup + ']', literal: p.literal, member: p.member });
-          tempFnNumber++;
-        }
-      }
-    });
-    if (!usedFunctions.some(uv => uv.literal === EquationParserService.MultiplicationOperator.literal)) {
-      usedFunctions.push({
-        lookup: tempFnBase + '[' + tempFnNumber + ']',
-        literal: EquationParserService.MultiplicationOperator.literal,
-        member: EquationParserService.MultiplicationOperator
       });
-
-      functionsObject[tempFnNumber] = EquationParserService.MultiplicationOperator.expression;
-      tempFnNumber++;
-    }
-
-    textParts.push('var tempx = arguments[0];\n'); //console.log(arguments)\n');
-    usedVariables.forEach((uv, i) => {
-      textParts.push(`var x = arguments[1][${i.toString()}];\n`);
-    });
-
-    const pieces = this.convertPartToFunctionPiece(results.equationPart);
-    const finalPiece = this._generateFunction(pieces, usedFunctions);
-
-    textParts.push('return ');
-    textParts.push(finalPiece.text);
-    textParts.push(';');
-    const finalFunctionText = textParts.join('');
-
-
-    try {
-      functionResults.output = this._getFn(functionsObject, finalFunctionText);
-      functionResults.error = null;
-    } catch (ex) {
+      if (!usedFunctions.some(uv => uv.literal === EquationParserService.MultiplicationOperator.literal)) {
+        usedFunctions.push({
+          lookup: tempFnBase + '[' + tempFnNumber + ']',
+          literal: EquationParserService.MultiplicationOperator.literal,
+          member: EquationParserService.MultiplicationOperator
+        });
+  
+        functionsObject[tempFnNumber] = EquationParserService.MultiplicationOperator.expression;
+        tempFnNumber++;
+      }
+  
+      textParts.push('var tempx = arguments[0];\n'); //console.log(arguments)\n');
+      usedVariables.forEach((uv, i) => {
+        textParts.push(`var x = arguments[1][${i.toString()}];\n`);
+      });
+  
+      const pieces = this.convertPartToFunctionPiece(results.equationPart);
+      const finalPiece = this._generateFunction(pieces, usedFunctions);
+  
+      textParts.push('return ');
+      textParts.push(finalPiece.text);
+      textParts.push(';');
+      const finalFunctionText = textParts.join('');
+  
+  
+      try {
+        functionResults.output = this._getFn(functionsObject, finalFunctionText);
+        functionResults.error = null;
+      } catch (ex) {
+        functionResults.error = ex;
+      }
+    } catch (ex) { 
       functionResults.error = ex;
-    }
-
+    }   
+  
     return functionResults;
   }
 
@@ -523,7 +530,7 @@ export class EquationParserService {
     for (let i = 1; i < parts.length; i++) {
       let leftPart = parts[i - 1].member;
       let rightPart = parts[i].member;
-      if (!(leftPart instanceof EqOperator && !(leftPart instanceof EqArgSeparator) && !(leftPart instanceof EqArg)) &&
+      if (!(leftPart instanceof EqOperator) && !(leftPart instanceof EqArgSeparator) && !(leftPart instanceof EqArg) &&
         (!(rightPart instanceof EqOperator) && !(rightPart instanceof EqArgSeparator) && !(rightPart instanceof EqArg))) {
         parts.splice(i, 0, <IFunctionPiece>{
           text: EquationParserService.MultiplicationOperator.literal,

@@ -1,3 +1,5 @@
+export type EqFunctionOutput = (...args: number[]) => number;
+
 export type EqFunctionDeclaration = (...args: any[]) => number;
 
 export abstract class EqMember {
@@ -181,6 +183,6 @@ export class ParserPotentialFunctionWarning extends ParserWarning {
 
 export interface FunctionGenerationResults {
   inputs: EqVariable[];
-  output: Function;
+  output: EqFunctionOutput;
   error: any;
 }

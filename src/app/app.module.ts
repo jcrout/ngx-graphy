@@ -1,10 +1,7 @@
 import { BrowserModule } from '@angular/platform-browser';
 import { NgModule } from '@angular/core';
-
-
 import { AppComponent } from './app.component';
-import { EquationBoxModule } from './equation-box/equation-box.module';
-
+import { GraphyModule } from './graphy/graphy.module';
 
 @NgModule({
   declarations: [
@@ -12,7 +9,7 @@ import { EquationBoxModule } from './equation-box/equation-box.module';
   ],
   imports: [
     BrowserModule,
-    EquationBoxModule.forRoot()
+    GraphyModule.forRoot()
   ],
   providers: [],
   bootstrap: [

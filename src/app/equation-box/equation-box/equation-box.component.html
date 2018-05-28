@@ -1,15 +1,4 @@
-<p>
-  equation-box works!
-</p>
-<pre>
-  {{ eq }}
-</pre>
-<pre>
-  {{ testLine1 }}
-</pre>
-<pre>
-  {{ testLine2 }}
-</pre>
-<pre>
-  {{ testVal | json }}
-</pre>
+<input type="text" class="equation-box-input" [(ngModel)]="eq" (input)="updateEq()" />
+<!-- <pre *ngIf="parseResults">
+  {{ parseResults | json }}
+</pre> -->
