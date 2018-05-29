@@ -22,7 +22,8 @@ export class EquationBoxComponent implements OnInit {
   constructor(private equationParser: EquationParserService) { }
 
   ngOnInit() {
-    
+    this.eq = '(x+1)^2 - .5(x-1)^3';
+    this.updateEq();
   }
 
   updateEq() {

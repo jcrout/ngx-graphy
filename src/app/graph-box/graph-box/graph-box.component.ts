@@ -4,6 +4,13 @@ import { GraphLine } from '../../equation-box/equation-box/equation-box.componen
 
 export type LabelFormatter = (num: Number) => string;
 
+export interface GraphLabel {
+  text: string;
+  x: number;
+  y: number;
+  color: string;
+}
+
 @Component({
   selector: 'graphy-graph-box',
   templateUrl: './graph-box.component.html',
@@ -16,6 +23,7 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
   @Input() clearGraphOnEmptyFunction = false;
   @Input() showGridlines = true;
   @Input() showAxis = true;
+  @Input() labelColor = 'gray';
   @Input() functionLineColor = 'red';
   @Input() functionLineThickness = 3;
   @Input() axisColor = 'black';
@@ -63,7 +71,7 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
   set leftBound(value: number) {
     this.handleSet('_leftBound', value, -10);
   }
-  get leftbound(): number {
+  get leftBound(): number {
     return this._leftBound;
   }
 
@@ -82,6 +90,8 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
   get bottomBound(): number {
     return this._bottomBound;
   }
+
+  public labels: GraphLabel[] = [];
 
   private _axisXManuallySet = false;
   private _axisX = 0;
@@ -104,6 +114,11 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
   private graphSizeTimerKey: any;
   private initialDraw = false;
 
+  private graphBoxContainer: HTMLDivElement;
+  private mouseMoveListener: any;
+  private lastMouseX: number;
+  private lastMouseY: number;
+
   // calculated values
   private nWidth: number;
   private nHeight: number;
@@ -111,6 +126,7 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
   private yUnit: number;
   private yOrigin: number;
   private xOrigin: number;
+  private panning = false;
 
   private handleSet(prop: string, value: any, defaultValue?: any) {
     if (!value && value !== 0) {
@@ -130,6 +146,7 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
 
     this.canvas = <HTMLCanvasElement>this.cvs.nativeElement;
     this.ctx = this.canvas.getContext('2d');
+    this.graphBoxContainer = <HTMLDivElement>this.canvas.parentElement;
     this.graphWidth = this.canvas.clientWidth;
     this.graphHeight = this.canvas.clientHeight;
     this.canvas.width = that.graphWidth;
@@ -145,6 +162,8 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
         that.plotGraph();
       }
     }, 1000);
+
+    
   }
 
   ngOnDestroy() {
@@ -243,18 +262,28 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
     const cWidth = this.graphWidth;
     const cHeight = this.graphHeight;
 
-    this.nWidth = this.rightBound - this.leftbound;
+    this.nWidth = this.rightBound - this.leftBound;
     this.nHeight = this.topBound - this.bottomBound;
     this.xUnit = cWidth / this.nWidth;
     this.yUnit = cHeight / this.nHeight;
-    const yPct = Math.abs(this.bottomBound / this.nHeight);
-    const xPct = Math.abs(this.leftbound / this.nWidth);
-    this.yOrigin = yPct * cHeight;
-    this.xOrigin = xPct * cWidth;
+    if (this.leftBound >= 0) { 
+      this.xOrigin = (0 - this.leftBound) * this.xUnit;
+    } else { 
+      const xPct = Math.abs(this.leftBound / this.nWidth);
+      this.xOrigin = xPct * cWidth;
+    }
+
+    if (this.topBound >= 0) { 
+      this.yOrigin = (0 - this.bottomBound) * this.yUnit;
+    } else { 
+      const yPct = Math.abs(this.bottomBound / this.nHeight);
+      this.yOrigin = yPct * cHeight;
+    }
   }
 
   private _labelFormatter(num: number): string {
-    return num.toFixed(1);
+    let txt = num.toFixed(1);
+    return txt.endsWith('.0') ? txt.substr(0, txt.length - 2) : txt;
   }
 
   private drawBase() {
@@ -263,17 +292,24 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
       let metrics = ctx.measureText(txt);
 
       ctx.lineWidth = 1;
-      if (xAxis) {        
-        let finalX = Math.max(0, x - (metrics.width / 2));
-        let finalY = y + gridLineThickness + fontHeight;
+      if (xAxis) {
+        let finalX = Math.min(cWidth - metrics.width - 3, Math.max(0, x - (metrics.width / 2)));
+        let finalY = Math.max(fontHeight, Math.min(cHeight - 1, y + gridLineThickness + fontHeight));
         if (finalX + metrics.width + 1 > cWidth) {
           finalX = cWidth - metrics.width - 1;
         }
-        ctx.fillRect(finalX, finalY - fontHeight + 1, metrics.width, fontHeight);
+        //that.labels.push(<GraphLabel>{ text: txt, x: finalX, y: finalY, color: that.labelColor });
+        ctx.fillRect(finalX, finalY - fontHeight + 2, metrics.width, fontHeight);
         ctx.strokeText(txt, finalX, finalY);
       } else {
-        let finalX = x + 3; // Math.max(0, x - (metrics.width / 2));
-        let finalY = y + gridLineThickness + fontHeight;
+        let finalX = Math.max(0, Math.min(cWidth - metrics.width - 3, x - axisThickness - metrics.width - 3)); // Math.max(0, x - (metrics.width / 2));
+        let finalY = y + (fontHeight / 2);
+        if (finalY + fontHeight + 1 > cHeight) {
+          finalY = cHeight - 2;
+        } else if (finalY < fontHeight) {
+          finalY = fontHeight;
+        }
+        //that.labels.push(<GraphLabel>{ text: txt, x: finalX, y: finalY, color: that.labelColor });
         ctx.fillRect(finalX, finalY - fontHeight + 1, metrics.width, fontHeight);
         ctx.strokeText(txt, finalX, finalY);
       }
@@ -292,28 +328,17 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
     const xStep = this.gridXStep * xUnit;
     const yStep = this.gridYStep * yUnit;
 
-    if (this.showAxis) {
-      const axisThickness = this.axisThickness > 0 ? this.axisThickness : 3;
-      ctx.strokeStyle = this.axisColor;
-      ctx.lineWidth = axisThickness;
-      ctx.beginPath();
-      ctx.moveTo(0, this.yOrigin);
-      ctx.lineTo(cWidth, this.yOrigin);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(this.xOrigin, 0);
-      ctx.lineTo(this.xOrigin, cHeight);
-      ctx.stroke();
-    }
-
     const gridLineThickness = this.gridMajorThickness > 0 ? this.gridMajorThickness : 1;
-    let fontHeight = 10;
+    const axisThickness = this.axisThickness > 0 ? this.axisThickness : 3;
+    let fontHeight = 13;
     let lblFmt = this.labelFormatter || this._labelFormatter;
+    this.labels = [];
+
     if (this.showGridlines) {
       ctx.fillStyle = 'white';
       ctx.lineWidth = gridLineThickness;
       ctx.strokeStyle = this.gridMajorColor;
-      ctx.font = '10px Arial';
+      ctx.font = fontHeight.toString() + 'px Arial';
       let num = 0;
       for (let i = this.xOrigin - xStep; i >= -1; i -= xStep) {
         ctx.beginPath();
@@ -351,5 +376,90 @@ export class GraphBoxComponent implements OnInit, OnChanges, OnDestroy {
         drawLabel(this.xOrigin, i, num, false);
       }
     }
+
+    if (this.showAxis) {
+      ctx.strokeStyle = this.axisColor;
+      ctx.lineWidth = axisThickness;
+      if (this.yOrigin <= cHeight && this.yOrigin >= 0) { 
+        ctx.beginPath();
+        ctx.moveTo(0, this.yOrigin);
+        ctx.lineTo(cWidth, this.yOrigin);
+        ctx.stroke();
+      }
+      if (this.xOrigin <= cWidth && this.xOrigin >= 0) { 
+        ctx.beginPath();
+        ctx.moveTo(this.xOrigin, 0);
+        ctx.lineTo(this.xOrigin, cHeight);
+        ctx.stroke();
+      }
+    }
+
+  }
+
+  scrolled(ev: MouseWheelEvent) {
+    let zoomIn = ev.deltaY < 0;
+    this.zoom(ev.offsetX, ev.offsetY, zoomIn);
+    console.log(ev);
+  }
+
+  zoom(x: number, y: number, zoomIn: boolean) {
+    this._bottomBoundManuallySet = false;
+    this._topBoundManuallySet = false;
+    this._leftBoundManuallySet = false;
+    this._rightBoundManuallySet = false;
+
+    const yPct = Math.abs(this.bottomBound / this.nHeight);
+    const xPct = Math.abs(this.leftBound / this.nWidth);
+    let modifier = zoomIn ? .5 : 2;
+    let nw = this.nWidth * modifier;
+    let nh = this.nHeight * modifier;
+    this._leftBound *= modifier;
+    this._rightBound *= modifier;
+    this._bottomBound *= modifier;
+    this._topBound *= modifier;
+    this.plotGraph();
+  }
+
+  mousedown(ev: MouseEvent) { 
+    console.log(ev);
+    if (ev.button == 0) { 
+      this.panning = true;
+      this.mouseMoveListener = this.pan.bind(this);
+      this.lastMouseX = ev.offsetX;
+      this.lastMouseY = ev.offsetY;
+      this.graphBoxContainer.onmousemove = this.mouseMoveListener;
+    }
+  }
+
+  mouseup() {
+    this.panning = false;
+    //this.graphBoxContainer.removeEventListener('mousemove', this.mouseMoveListener);
+    this.graphBoxContainer.onmousemove = null;
+    this.mouseMoveListener = null;
+  }
+
+  pan(ev: MouseEvent) {
+    if (ev.buttons == 0 || ev.button !== 0) { 
+      this.graphBoxContainer.onmousemove = null;
+      return;
+    }
+
+    let xDelta = (ev.offsetX - this.lastMouseX) / this.xUnit;
+    let yDelta = (ev.offsetY - this.lastMouseY) / this.yUnit;
+    this._leftBound -= xDelta;
+    this._rightBound -= xDelta;
+    this._topBound -= yDelta;
+    this._bottomBound -= yDelta;
+    this.lastMouseX = ev.offsetX;
+    this.lastMouseY = ev.offsetY;
+    //console.log(this._topBound + ', ' + this._rightBound + ', ' + this._bottomBound + ', ' + this._leftBound);
+    this.plotGraph();
+
+    const that = this;
+    this.graphBoxContainer.onmousemove = null;
+
+    window.setTimeout(() => { 
+      that.graphBoxContainer.onmousemove = that.pan.bind(this);
+    }, 20);
   }
 }
